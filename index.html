@@ -1317,76 +1317,104 @@ function drawCameraShake() {
   }
 }
 
+function drawPanel(x, y, w, h, borderCol, borderAlpha) {
+  // Frosted glass panel with subtle border
+  noStroke();
+  fill(10, 12, 18, 170);
+  rect(x, y, w, h, 10);
+  // Inner glow edge
+  noFill();
+  stroke(red(borderCol), green(borderCol), blue(borderCol), borderAlpha || 80);
+  strokeWeight(1.5);
+  rect(x, y, w, h, 10);
+  // Top highlight line
+  stroke(255, 255, 255, 25);
+  strokeWeight(0.5);
+  line(x + 10, y + 1, x + w - 10, y + 1);
+  noStroke();
+}
+
 function drawUI() {
   let h = getSimHours();
   let phase = getPhase();
 
   push();
-  // Reset any shake for UI
   resetMatrix();
 
-  // --- Title (top left) ---
+  // --- Title panel (top left) ---
+  let titleW = 420 * sx;
+  let titleH = 62 * sy;
+  drawPanel(14, 10, titleW, titleH, color(255, 180, 80));
+
+  // Amber accent bar on left edge
   noStroke();
-  fill(0, 0, 0, 120);
-  rect(10, 8, 380 * sx, 55 * sy, 6);
+  fill(255, 160, 50, 200);
+  rect(14, 10, 4, titleH, 10, 0, 0, 10);
 
   textFont('Inter');
-  textStyle(NORMAL);
-  fill(255, 255, 255, 240);
-  textSize(max(14, 18 * sx));
-  textAlign(LEFT, TOP);
   textStyle(BOLD);
-  text("MIND LAB COSMOS — Pompeii: The Last 24 Hours", 20, 14);
-  textStyle(NORMAL);
-  fill(200, 200, 200, 200);
-  textSize(max(12, 14 * sx));
-  text("79 AD  •  Mount Vesuvius", 20, 38);
+  fill(255, 255, 255, 245);
+  textSize(max(14, 17 * sx));
+  textAlign(LEFT, TOP);
+  text("MIND LAB COSMOS", 28, 18);
 
-  // --- Timer (top right) ---
+  // Subtitle with amber accent
+  fill(255, 170, 60, 220);
+  textSize(max(12, 14 * sx));
+  textStyle(NORMAL);
+  text("Pompeii: The Last 24 Hours", 28, 38);
+
+  fill(180, 180, 190, 160);
+  textSize(max(10, 12 * sx));
+  text("79 AD  ·  Mount Vesuvius  ·  Bay of Naples", 28, 55);
+
+  // --- Timer panel (top right) ---
   let elapsed = getElapsedMs();
   let elHours = floor(elapsed / 3600000);
   let elMins = floor((elapsed % 3600000) / 60000);
   let elSecs = floor((elapsed % 60000) / 1000);
   let elStr = nf(elHours, 2) + ":" + nf(elMins, 2) + ":" + nf(elSecs, 2);
 
-  // Roman time: starts at 12:00 PM Aug 24
   let simH = getSimHours();
   let romanHour = 12 + simH;
   let romanDay = "AUGUST 24";
-  if (romanHour >= 24) {
-    romanHour -= 24;
-    romanDay = "AUGUST 25";
-  }
+  if (romanHour >= 24) { romanHour -= 24; romanDay = "AUGUST 25"; }
   let romanH = floor(romanHour);
   let romanM = floor((romanHour - romanH) * 60);
   let ampm = romanH >= 12 ? "PM" : "AM";
   let displayH = romanH % 12;
   if (displayH === 0) displayH = 12;
-  let romanStr = displayH + ":" + nf(romanM, 2) + " " + ampm + "  •  " + romanDay + ", 79 AD";
+  let romanStr = displayH + ":" + nf(romanM, 2) + " " + ampm + "  ·  " + romanDay + ", 79 AD";
 
-  let timerX = width - 15;
+  let timerW = 350 * sx;
+  let timerH = 72 * sy;
+  let timerX = width - 14 - timerW;
+  drawPanel(timerX, 10, timerW, timerH, color(80, 200, 220));
 
-  noStroke();
-  fill(0, 0, 0, 140);
-  rect(timerX - 320 * sx, 8, 320 * sx, 68 * sy, 6);
+  // Cyan accent bar on right edge
+  fill(80, 220, 230, 200);
+  rect(timerX + timerW - 4, 10, 4, timerH, 0, 10, 10, 0);
 
-  textFont('Inter');
+  textFont('Orbitron');
   textStyle(BOLD);
   textAlign(RIGHT, TOP);
-  fill(255, 255, 255);
-  textSize(max(14, 17 * sx));
-  text("ELAPSED  " + elStr, timerX - 12, 14);
+  fill(255, 255, 255, 250);
+  textSize(max(16, 20 * sx));
+  text(elStr, width - 26, 16);
 
+  textFont('Inter');
   textStyle(NORMAL);
-  fill(255, 150, 30);
+  fill(255, 160, 50, 230);
   textSize(max(11, 13 * sx));
-  text(romanStr, timerX - 12, 35);
+  text(romanStr, width - 26, 40);
 
-  fill(80, 220, 220);
+  // Phase name with color
+  let phaseCol = getPhaseColor();
+  fill(red(phaseCol), green(phaseCol), blue(phaseCol), 230);
   textSize(max(10, 12 * sx));
-  text(getPhaseName(), timerX - 12, 53);
+  text(getPhaseEmoji() + "  " + getPhaseName(), width - 26, 57);
 
-  // --- Population counter (top center) ---
+  // --- Population panel (top center) ---
   let escaped = 0;
   let remaining = 0;
   let fallen = 0;
@@ -1396,50 +1424,90 @@ function drawUI() {
     else remaining++;
   }
 
-  let popX = width / 2;
-  noStroke();
-  fill(0, 0, 0, 140);
-  rect(popX - 110*sx, 8, 220*sx, 48*sy, 6);
+  let popW = 260 * sx;
+  let popH = 62 * sy;
+  let popX = width / 2 - popW / 2;
+  drawPanel(popX, 10, popW, popH, color(100, 220, 120));
 
+  // Population icon (small person silhouette)
+  fill(100, 220, 120, 180);
   textFont('Inter');
-  textStyle(BOLD);
+  textSize(max(10, 11 * sx));
   textAlign(CENTER, TOP);
-  fill(255);
-  textSize(max(12, 14 * sx));
-  text("CITIZENS: " + remaining + " / " + NUM_PEOPLE, popX, 13);
+  text("CITIZENS OF POMPEII", width / 2, 16);
 
+  // Big remaining number
+  textFont('Orbitron');
+  textStyle(BOLD);
+  fill(255, 255, 255, 250);
+  textSize(max(18, 22 * sx));
+  text(remaining + " / " + NUM_PEOPLE, width / 2, 32);
+
+  // Escaped and fallen counters
+  textFont('Inter');
   textStyle(NORMAL);
-  fill(100, 220, 100);
-  textSize(max(10, 12 * sx));
-  text("Escaped: " + escaped + "   Fallen: " + fallen, popX, 34);
+  textSize(max(10, 11 * sx));
+  let statY = 54;
+  textAlign(CENTER, TOP);
+  fill(80, 220, 120, 200);
+  text("Escaped: " + escaped, width / 2 - 55 * sx, statY);
+  fill(220, 80, 80, fallen > 0 ? 200 : 100);
+  text("Fallen: " + fallen, width / 2 + 55 * sx, statY);
 
-  // --- Phase indicator (middle right) ---
-  let pillX = width - 30;
-  let pillY = height * 0.45;
-  let pillW = 280 * sx;
-  let pillH = 30 * sy;
-  let phaseCol = getPhaseColor();
+  // --- Phase indicator pill (middle right) ---
+  let pillW = 300 * sx;
+  let pillH = 34 * sy;
+  let pillX = width - 20 - pillW;
+  let pillY = height * 0.42;
 
+  // Glow behind pill
   noStroke();
-  fill(red(phaseCol), green(phaseCol), blue(phaseCol), 180);
-  rect(pillX - pillW, pillY, pillW, pillH, pillH/2);
+  fill(red(phaseCol), green(phaseCol), blue(phaseCol), 30);
+  rect(pillX - 6, pillY - 4, pillW + 12, pillH + 8, pillH);
 
-  fill(255, 255, 255, 240);
+  fill(10, 12, 18, 190);
+  rect(pillX, pillY, pillW, pillH, pillH / 2);
+  stroke(red(phaseCol), green(phaseCol), blue(phaseCol), 150);
+  strokeWeight(1.5);
+  noFill();
+  rect(pillX, pillY, pillW, pillH, pillH / 2);
+  noStroke();
+
+  fill(255, 255, 255, 245);
   textFont('Inter');
   textStyle(BOLD);
   textSize(max(11, 13 * sx));
   textAlign(CENTER, CENTER);
-  text(getPhaseEmoji() + "  " + getPhaseName(), pillX - pillW/2, pillY + pillH/2);
+  text(getPhaseEmoji() + "  " + getPhaseName(), pillX + pillW / 2, pillY + pillH / 2);
 
-  // --- Facts ticker (bottom center) ---
-  let factBarH = 40 * sy;
+  // --- Facts ticker (bottom) ---
+  let factBarH = 46 * sy;
   let factBarY = height - factBarH;
 
+  // Gradient background for ticker
   noStroke();
-  fill(0, 0, 0, 160);
+  for (let i = 0; i < 12; i++) {
+    fill(10, 12, 18, map(i, 0, 12, 0, 200));
+    rect(0, factBarY - 12 + i, width, 1);
+  }
+  fill(10, 12, 18, 200);
   rect(0, factBarY, width, factBarH);
 
-  // Rotate facts every 4 minutes (real time, NOT scaled)
+  // Thin amber accent line at top of ticker
+  fill(255, 160, 50, 60);
+  rect(0, factBarY, width, 1.5);
+
+  // Fact label pill
+  fill(255, 160, 50, 40);
+  rect(20, factBarY + 10, 120 * sx, 26 * sy, 13 * sy);
+  fill(255, 170, 60, 200);
+  textFont('Inter');
+  textStyle(BOLD);
+  textSize(max(9, 11 * sx));
+  textAlign(CENTER, CENTER);
+  text("HISTORY", 80 * sx + 20, factBarY + 23);
+
+  // Rotate facts every 4 minutes
   let factInterval = 240000;
   let now = millis();
   if (now - lastFactTime > factInterval) {
@@ -1447,29 +1515,35 @@ function drawUI() {
     lastFactTime = now;
     factAlpha = 0;
   }
-  factAlpha = min(factAlpha + 8, 255);
+  factAlpha = min(factAlpha + 6, 255);
 
-  fill(220, 220, 220, factAlpha);
+  fill(220, 225, 230, factAlpha);
   textFont('Inter');
   textStyle(NORMAL);
   textSize(max(13, 15 * sx));
   textAlign(CENTER, CENTER);
-  text(FACTS[currentFactIndex], width / 2, factBarY + factBarH / 2);
+  text(FACTS[currentFactIndex], width / 2 + 40, factBarY + factBarH / 2);
 
-  // --- Controls hint (bottom right) ---
-  fill(150, 150, 150, 160);
-  textSize(max(10, 11 * sx));
+  // --- Controls hint ---
+  fill(120, 120, 130, 130);
+  textSize(max(9, 10 * sx));
   textAlign(RIGHT, BOTTOM);
-  let speedLabel = TIME_SCALE === 1.0 ? "1x" : TIME_SCALE + "x";
-  text("[P] Pause   [R] Reset   [T] Speed Toggle (" + speedLabel + ")", width - 15, height - factBarH - 8);
+  let speedLabel = TIME_SCALE === 1.0 ? "1×" : TIME_SCALE + "×";
+  text("[P] Pause   [R] Reset   [T] Speed (" + speedLabel + ")", width - 18, factBarY - 8);
 
-  // Paused indicator
+  // Paused overlay
   if (paused) {
+    fill(0, 0, 0, 100);
+    rect(0, 0, width, height);
     fill(255, 80, 80, 200 + sin(frameCount * 0.1) * 55);
     textFont('Orbitron');
-    textSize(max(24, 30 * sx));
+    textSize(max(28, 36 * sx));
     textAlign(CENTER, CENTER);
-    text("PAUSED", width / 2, height / 2);
+    text("⏸  PAUSED", width / 2, height / 2);
+    fill(180, 180, 190, 150);
+    textFont('Inter');
+    textSize(max(12, 14 * sx));
+    text("Press P to resume", width / 2, height / 2 + 40);
   }
 
   pop();

@@ -1,0 +1,1560 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Mind Lab Cosmos — Pompeii: The Last 24 Hours</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #000; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<script>
+// ============================================================
+// TIME_SCALE — Change this to speed up the simulation for testing!
+// 1.0    = real time (24 real hours = 24 sim hours)
+// 60.0   = 24 sim hours in 24 real minutes
+// 360.0  = 24 sim hours in 4 real minutes
+// 1440.0 = 24 sim hours in 1 real minute
+// ============================================================
+let TIME_SCALE = 1.0;
+
+let startTime;
+let paused = false;
+let pauseOffset = 0;
+let pauseStart = 0;
+
+// Particle arrays
+let ashParticles = [];
+let rockParticles = [];
+const MAX_PARTICLES = 200;
+
+// People
+let people = [];
+const NUM_PEOPLE = 30;
+
+// Buildings
+let buildings = [];
+let trees = [];
+let aqueductArches = [];
+
+// Scene state
+let ashLayerHeight = 0;
+let surgeX = 0;
+let surgeActive = false;
+let surgeReached = false;
+let lightningFlash = 0;
+let lastLightningTime = 0;
+let lastFactTime = 0;
+let currentFactIndex = 0;
+let factAlpha = 255;
+let factTransition = false;
+
+// Eruption column
+let columnHeight = 0;
+let columnMaxWidth = 0;
+
+// Lava
+let lavaLength = 0;
+
+// Camera shake
+let shakeX = 0;
+let shakeY = 0;
+
+// Scale factors for responsive layout
+let sx, sy;
+
+const FACTS = [
+  "Vesuvius ejected 1.5 million tons of material per second — 100,000× the energy of Hiroshima",
+  "The ash column reached 33 km (21 miles) into the stratosphere",
+  "Pumice accumulated at 15 cm per hour — roofs collapsed under the weight",
+  "Pliny the Elder, commander of the Roman fleet, died trying to rescue survivors by boat",
+  "Pyroclastic surges reached 300°C (572°F) — death was instant",
+  "About 80% of Pompeii's 11,000 residents escaped in the first hours",
+  "The eruption occurred the day after Vulcanalia — the Roman festival honoring the god of fire",
+  "Pompeii wasn't rediscovered until 1748 — buried for almost 1,700 years",
+  "Pliny the Younger's letters to historian Tacitus are the only surviving eyewitness account",
+  "Rocks fell at 50 meters per second — faster than a baseball pitch",
+  "A 2025 study revealed 17 separate pyroclastic surges over 32 hours",
+  "The final ash deposit was 19 feet (6 meters) deep over the entire city",
+  "Plaster casts of victims were created by pouring plaster into voids left in hardened ash",
+  "The eruption's thermal energy equaled 100,000 nuclear bombs detonating simultaneously",
+  "Some victims were found clutching valuables — jewelry, coins, house keys",
+  "Herculaneum, closer to Vesuvius, was buried under 20 meters (65 feet) of material",
+  "The first surge hit Herculaneum at 11:15 PM — most of its residents were already dead",
+  "Pompeii's amphitheater held 20,000 spectators — among the oldest surviving Roman amphitheaters",
+  "The word 'volcano' comes from Vulcan, the Roman god of fire",
+  "Mount Vesuvius has erupted more than 50 times since 79 AD — it is still active today"
+];
+
+function getElapsedMs() {
+  if (paused) return pauseOffset;
+  return (Date.now() - startTime - pauseOffset);
+}
+
+function getSimHours() {
+  return (getElapsedMs() / (1000 * 60 * 60)) * TIME_SCALE;
+}
+
+function getPhase() {
+  let h = getSimHours();
+  if (h < 0.5) return 0;
+  if (h < 1.0) return 1;
+  if (h < 5.0) return 2;
+  if (h < 11.0) return 3;
+  if (h < 18.0) return 4;
+  if (h < 20.0) return 5;
+  return 6;
+}
+
+function getPhaseName() {
+  switch(getPhase()) {
+    case 0: return "PEACEFUL — NORMAL DAY";
+    case 1: return "ERUPTION BEGINS — PLINIAN COLUMN";
+    case 2: return "PUMICE FALL — ACCUMULATING";
+    case 3: return "DARKNESS — HEAVY ASH RAIN";
+    case 4: return "LAVA VISIBLE — SURGES APPROACHING";
+    case 5: return "PYROCLASTIC SURGE — LETHAL";
+    case 6: return "BURIAL — POMPEII LOST";
+  }
+}
+
+function getPhaseColor() {
+  switch(getPhase()) {
+    case 0: return color(60, 180, 75);
+    case 1: return color(220, 200, 40);
+    case 2: return color(240, 160, 40);
+    case 3: return color(220, 120, 20);
+    case 4: return color(220, 50, 30);
+    case 5: return color(160, 20, 20);
+    case 6: return color(120, 120, 120);
+  }
+}
+
+function getPhaseEmoji() {
+  switch(getPhase()) {
+    case 0: return "☀";
+    case 1: return "⚠";
+    case 2: return "⚠";
+    case 3: return "🔶";
+    case 4: return "🔴";
+    case 5: return "🔴";
+    case 6: return "◼";
+  }
+}
+
+// Responsive scale factors
+function computeScale() {
+  sx = width / 1280;
+  sy = height / 720;
+}
+
+// Key positions (in base 1280x720 coords, scaled at draw time)
+function volcanoX() { return width * 0.62; }
+function volcanoBaseY() { return height * 0.80; }
+function volcanoW() { return 300 * sx; }
+function volcanoH() { return 350 * sy; }
+function groundY() { return height * 0.80; }
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  frameRate(30);
+  computeScale();
+  startTime = Date.now();
+  pauseOffset = 0;
+
+  initBuildings();
+  initPeople();
+  initTrees();
+  initAqueduct();
+
+  lastFactTime = millis();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  computeScale();
+}
+
+function initBuildings() {
+  buildings = [];
+  // City bounds: from 5% to 50% of width
+  let cityLeft = 0.08;
+  let cityRight = 0.50;
+  let bData = [
+    { rx: 0.12, rw: 110, rh: 70, type: 'temple' },
+    { rx: 0.20, rw: 90, rh: 55, type: 'temple' },
+    { rx: 0.28, rw: 120, rh: 80, type: 'temple' },
+    { rx: 0.36, rw: 80, rh: 50, type: 'house' },
+    { rx: 0.44, rw: 100, rh: 65, type: 'temple' },
+    { rx: 0.16, rw: 80, rh: 40, type: 'forum' },
+  ];
+  for (let b of bData) {
+    buildings.push({
+      x: b.rx,
+      w: b.rw,
+      h: b.rh,
+      type: b.type,
+      roofAsh: 0,
+      collapsed: false,
+      collapseAt: b.rx < 0.25 ? 7 : (b.rx < 0.35 ? 5 : 15),
+      cracked: false,
+      crackAt: b.rx < 0.20 ? 3.5 : (b.rx < 0.35 ? 4.5 : 9),
+      windowsLit: true,
+    });
+  }
+  // City wall
+  buildings.push({
+    x: 0.04,
+    w: 30,
+    h: 90,
+    type: 'wall',
+    roofAsh: 0,
+    collapsed: false,
+    collapseAt: 999,
+    cracked: false,
+    crackAt: 12,
+    windowsLit: false,
+  });
+}
+
+function initTrees() {
+  trees = [];
+  let positions = [0.09, 0.17, 0.25, 0.33, 0.41, 0.48, 0.53];
+  for (let p of positions) {
+    trees.push({
+      x: p,
+      h: 30 + random(20),
+      r: 12 + random(8),
+    });
+  }
+}
+
+function initAqueduct() {
+  aqueductArches = [];
+  // Aqueduct between city and volcano
+  let startX = 0.51;
+  let numArches = 5;
+  for (let i = 0; i < numArches; i++) {
+    aqueductArches.push({
+      x: startX + i * 0.028,
+      collapsed: false,
+      collapseAt: 10 + i * 2,
+    });
+  }
+}
+
+function initPeople() {
+  people = [];
+  for (let i = 0; i < NUM_PEOPLE; i++) {
+    let px = random(0.08, 0.50);
+    // Assign group: pairs/triples flee together
+    let groupId = floor(i / 3);
+    people.push({
+      x: px,
+      y: 0,
+      state: 'calm',
+      dir: random() > 0.5 ? 1 : -1,
+      speed: random(0.2, 0.5),
+      walkTimer: random(60, 180),
+      stopped: false,
+      groupId: groupId,
+      armUp: false,
+      escaped: false,
+      fallen: false,
+      coveredAlpha: 0,
+      fleeDelay: random(0, 60),
+      transitioned: false,
+      tunicHue: random(20, 50),
+    });
+  }
+}
+
+function updatePeople() {
+  let h = getSimHours();
+  let phase = getPhase();
+
+  for (let p of people) {
+    if (p.escaped || p.fallen) continue;
+
+    let gY = groundY();
+    p.y = gY - 20 * sy;
+
+    switch (p.state) {
+      case 'calm':
+        if (!p.stopped) {
+          p.x += p.dir * p.speed * 0.0001 * sx;
+          p.walkTimer--;
+          if (p.walkTimer <= 0) {
+            if (random() < 0.3) {
+              p.stopped = true;
+              p.walkTimer = random(30, 90);
+            } else {
+              p.dir *= -1;
+              p.walkTimer = random(60, 180);
+            }
+          }
+        } else {
+          p.walkTimer--;
+          if (p.walkTimer <= 0) {
+            p.stopped = false;
+            p.walkTimer = random(60, 180);
+          }
+        }
+        // Keep in city bounds
+        p.x = constrain(p.x, 0.06, 0.52);
+
+        // Transition to worried
+        if (phase >= 1 && !p.transitioned) {
+          let worriedChance = phase === 1 ? 0.005 : (phase === 2 ? 0.01 : 0.02);
+          if (random() < worriedChance) {
+            p.state = 'worried';
+            p.armUp = true;
+            p.walkTimer = random(60, 120);
+            p.transitioned = true;
+          }
+        }
+        break;
+
+      case 'worried':
+        p.walkTimer--;
+        p.armUp = true;
+        if (p.walkTimer <= 0) {
+          // Decide: flee, shelter, or stay worried
+          let fleeChance = phase >= 3 ? 0.6 : (phase >= 2 ? 0.5 : 0.3);
+          let shelterChance = phase >= 3 ? 0.3 : 0.15;
+          let r = random();
+          if (r < fleeChance) {
+            p.state = 'fleeing';
+            p.speed = random(0.8, 1.5);
+            p.armUp = false;
+          } else if (r < fleeChance + shelterChance) {
+            p.state = 'sheltering';
+            p.armUp = false;
+            // Move to nearest building
+            let nearestB = buildings[0];
+            let nearestDist = 9999;
+            for (let b of buildings) {
+              if (b.type === 'wall') continue;
+              let d = abs(p.x - b.x);
+              if (d < nearestDist) {
+                nearestDist = d;
+                nearestB = b;
+              }
+            }
+            p.x = nearestB.x;
+          } else {
+            p.walkTimer = random(30, 90);
+          }
+        }
+        break;
+
+      case 'fleeing':
+        p.fleeDelay--;
+        if (p.fleeDelay <= 0) {
+          p.x -= p.speed * 0.0004 * sx;
+          p.armUp = false;
+          if (p.x < -0.02) {
+            p.escaped = true;
+          }
+        }
+        break;
+
+      case 'sheltering':
+        // Stay put. May fall if building collapses or surge hits
+        if (phase >= 5) {
+          p.state = 'fallen';
+          p.fallen = true;
+        }
+        break;
+
+      case 'fallen':
+        p.fallen = true;
+        break;
+    }
+
+    // Surge kills everyone
+    if (surgeActive && !p.fallen && !p.escaped) {
+      let surgePx = surgeX;
+      let personPx = p.x * width;
+      if (surgePx <= personPx + 20 * sx) {
+        p.state = 'fallen';
+        p.fallen = true;
+      }
+    }
+
+    // Phase-based forced transitions
+    if (phase >= 3 && p.state === 'calm' && random() < 0.005) {
+      p.state = 'worried';
+      p.walkTimer = random(20, 60);
+    }
+    if (phase >= 4 && p.state === 'worried' && random() < 0.01) {
+      p.state = 'fallen';
+      p.fallen = true;
+    }
+  }
+}
+
+function drawPerson(p) {
+  if (p.escaped) return;
+
+  let px = p.x * width;
+  let py = p.y - ashLayerHeight;
+  let s = sy;
+
+  if (p.fallen) {
+    // Lying on ground
+    p.coveredAlpha = min(p.coveredAlpha + 0.3, 255);
+    push();
+    stroke(60);
+    strokeWeight(2);
+    // Horizontal figure
+    let ly = groundY() - ashLayerHeight - 4 * s;
+    line(px - 8*s, ly, px + 8*s, ly); // body
+    ellipse(px + 10*s, ly, 6*s, 6*s); // head
+    line(px - 4*s, ly, px - 6*s, ly + 4*s); // leg
+    line(px + 2*s, ly, px + 4*s, ly + 4*s); // leg
+
+    // Tunic
+    noStroke();
+    fill(220, 210, 190, 200);
+    rect(px - 4*s, ly - 2*s, 8*s, 4*s);
+
+    // Coverage by ash
+    if (p.coveredAlpha > 50) {
+      fill(160, 150, 140, p.coveredAlpha);
+      rect(px - 10*s, ly - 4*s, 22*s, 10*s);
+    }
+    pop();
+    return;
+  }
+
+  push();
+  stroke(50);
+  strokeWeight(1.5);
+  noFill();
+
+  // Head
+  ellipse(px, py - 16*s, 8*s, 8*s);
+
+  // Body
+  line(px, py - 12*s, px, py);
+
+  // Legs — walking animation
+  let legAnim = sin(frameCount * 0.15 + p.x * 100) * 4 * s;
+  if (p.state === 'calm' && p.stopped) legAnim = 0;
+  if (p.state === 'sheltering') legAnim = 0;
+  line(px, py, px - 4*s + legAnim, py + 10*s);
+  line(px, py, px + 4*s - legAnim, py + 10*s);
+
+  // Arms
+  if (p.armUp) {
+    // One arm raised (looking up)
+    line(px, py - 8*s, px - 5*s, py - 2*s);
+    line(px, py - 8*s, px + 5*s, py - 16*s);
+  } else {
+    let armAnim = p.state === 'fleeing' ? sin(frameCount * 0.2 + p.x * 100) * 5 * s : 0;
+    line(px, py - 8*s, px - 5*s, py - 2*s + armAnim);
+    line(px, py - 8*s, px + 5*s, py - 2*s - armAnim);
+  }
+
+  // Tunic (small white rectangle on body)
+  noStroke();
+  fill(230, 220, 200);
+  rect(px - 3*s, py - 10*s, 6*s, 10*s);
+
+  pop();
+}
+
+function spawnAsh() {
+  let phase = getPhase();
+  let h = getSimHours();
+  let rate = 0;
+
+  if (phase === 2) {
+    let progress = (h - 1.0) / 4.0;
+    rate = lerp(5, 30, progress) / 30; // per frame at 30fps
+  } else if (phase === 3) {
+    rate = lerp(30, 60, (h - 5) / 6) / 30;
+  } else if (phase >= 4) {
+    rate = 50 / 30;
+  }
+
+  // Spawn particles
+  let toSpawn = floor(rate);
+  if (random() < (rate - toSpawn)) toSpawn++;
+
+  for (let i = 0; i < toSpawn; i++) {
+    if (ashParticles.length >= MAX_PARTICLES) {
+      ashParticles.shift();
+    }
+    let size = random(3, 6) * sx;
+    let shade = random(160, 220);
+    ashParticles.push({
+      x: random(0, width),
+      y: random(-20, -5),
+      vy: random(0.3, 0.8) * sy,
+      vx: random(-0.2, 0.2) * sx,
+      size: size,
+      color: shade,
+      alpha: random(120, 200),
+    });
+  }
+
+  // Spawn rocks occasionally (phase 2+)
+  if (phase >= 2 && random() < (phase >= 3 ? 0.03 : 0.01)) {
+    if (rockParticles.length < 20) {
+      rockParticles.push({
+        x: random(width * 0.1, width * 0.7),
+        y: -10,
+        vy: random(2, 4) * sy,
+        size: random(8, 12) * sx,
+        color: random(80, 120),
+      });
+    }
+  }
+}
+
+function updateParticles() {
+  let gY = groundY();
+
+  // Update ash
+  for (let i = ashParticles.length - 1; i >= 0; i--) {
+    let p = ashParticles[i];
+    p.y += p.vy;
+    p.x += p.vx;
+    if (p.y > gY - ashLayerHeight) {
+      ashParticles.splice(i, 1);
+    }
+  }
+
+  // Update rocks
+  for (let i = rockParticles.length - 1; i >= 0; i--) {
+    let p = rockParticles[i];
+    p.y += p.vy;
+    if (p.y > gY - ashLayerHeight) {
+      rockParticles.splice(i, 1);
+    }
+  }
+
+  // Grow ash layer
+  let phase = getPhase();
+  let h = getSimHours();
+  if (phase >= 2) {
+    // Target: by hour 24, ash should cover ~70% of building heights
+    // Max ash layer ~ 250*sy pixels over 23 hours
+    let maxAsh = 250 * sy;
+    let progress = constrain((h - 1) / 23, 0, 1);
+    // Exponential growth curve - slow start, faster later
+    let targetAsh = maxAsh * pow(progress, 1.8);
+    // Use faster lerp when speeding through time
+    let lerpRate = TIME_SCALE > 10 ? 0.02 : 0.001;
+    ashLayerHeight = lerp(ashLayerHeight, targetAsh, lerpRate);
+  }
+}
+
+function drawSky() {
+  let h = getSimHours();
+  let phase = getPhase();
+
+  // Sky gradient
+  let skyTop, skyBot;
+
+  if (h < 0.5) {
+    skyTop = color(100, 170, 235);
+    skyBot = color(160, 210, 245);
+  } else if (h < 5) {
+    let t = (h - 0.5) / 4.5;
+    skyTop = lerpColor(color(100, 170, 235), color(130, 130, 140), t);
+    skyBot = lerpColor(color(160, 210, 245), color(160, 160, 160), t);
+  } else if (h < 11) {
+    let t = (h - 5) / 6;
+    skyTop = lerpColor(color(130, 130, 140), color(40, 35, 35), t);
+    skyBot = lerpColor(color(160, 160, 160), color(60, 50, 50), t);
+  } else if (h < 18) {
+    let t = constrain((h - 11) / 7, 0, 1);
+    skyTop = lerpColor(color(40, 35, 35), color(15, 12, 12), t);
+    skyBot = lerpColor(color(60, 50, 50), color(25, 20, 18), t);
+  } else {
+    skyTop = color(12, 10, 10);
+    skyBot = color(20, 16, 14);
+  }
+
+  // Draw sky
+  for (let y = 0; y < groundY(); y++) {
+    let t = y / groundY();
+    let c = lerpColor(skyTop, skyBot, t);
+    stroke(c);
+    line(0, y, width, y);
+  }
+
+  // Darkness overlay (phase 3+)
+  if (phase >= 3) {
+    let darkness = 0;
+    if (phase === 3) darkness = map(h, 5, 11, 0, 140);
+    else if (phase === 4) darkness = map(h, 11, 18, 140, 200);
+    else if (phase === 5) darkness = 220;
+    else darkness = map(constrain(h, 20, 24), 20, 24, 200, 230);
+    noStroke();
+    fill(0, 0, 0, darkness);
+    rect(0, 0, width, groundY());
+  }
+}
+
+function drawSunMoon() {
+  let h = getSimHours();
+  let phase = getPhase();
+
+  // Sun visible hours 0-6 (fading in phase 3)
+  if (h < 8) {
+    let sunAlpha = h < 5 ? 255 : map(h, 5, 8, 255, 0);
+    let sunX = map(h, 0, 12, width * 0.8, width * 0.2);
+    let sunY = map(h, 0, 6, height * 0.12, height * 0.08);
+    // Arc path
+    sunY = height * 0.1 + sin(map(h, 0, 12, 0, PI)) * (-height * 0.05);
+
+    push();
+    noStroke();
+    // Glow
+    fill(255, 160, 50, sunAlpha * 0.3);
+    ellipse(sunX, sunY, 70 * sx, 70 * sx);
+    // Sun body
+    fill(255, 140, 40, sunAlpha);
+    ellipse(sunX, sunY, 40 * sx, 40 * sx);
+    fill(255, 180, 60, sunAlpha);
+    ellipse(sunX, sunY, 32 * sx, 32 * sx);
+    pop();
+  }
+
+  // Moon visible hours 6-14
+  if (h > 6 && h < 14) {
+    let moonAlpha = 1;
+    if (h < 7) moonAlpha = map(h, 6, 7, 0, 1);
+    if (h > 12) moonAlpha = map(h, 12, 14, 1, 0);
+    // Dim through haze
+    if (phase >= 3) moonAlpha *= 0.3;
+
+    let moonX = map(h, 6, 14, width * 0.8, width * 0.15);
+    let moonY = height * 0.12;
+
+    push();
+    noStroke();
+    fill(220, 220, 230, moonAlpha * 200);
+    ellipse(moonX, moonY, 30 * sx, 30 * sx);
+    // Crescent shadow
+    fill(red(lerpColor(color(100, 170, 235), color(40, 35, 35), constrain((h-5)/6, 0, 1))),
+         green(lerpColor(color(100, 170, 235), color(40, 35, 35), constrain((h-5)/6, 0, 1))),
+         blue(lerpColor(color(100, 170, 235), color(40, 35, 35), constrain((h-5)/6, 0, 1))),
+         moonAlpha * 220);
+    ellipse(moonX + 6*sx, moonY - 2*sy, 26 * sx, 28 * sx);
+    pop();
+  }
+}
+
+function drawClouds() {
+  let h = getSimHours();
+  if (h > 3) return; // Clouds disappear as haze grows
+
+  let alpha = map(h, 0, 3, 200, 0);
+  push();
+  noStroke();
+  fill(255, 255, 255, alpha);
+
+  let t = (millis() / 80000) % 1;
+  for (let i = 0; i < 4; i++) {
+    let cx = ((width * 0.1 + i * width * 0.22 + t * width * 0.3) % (width * 1.2)) - width * 0.1;
+    let cy = height * 0.15 + i * height * 0.04;
+    ellipse(cx, cy, 80*sx, 25*sy);
+    ellipse(cx + 25*sx, cy - 8*sy, 60*sx, 22*sy);
+    ellipse(cx - 20*sx, cy - 3*sy, 50*sx, 20*sy);
+  }
+  pop();
+}
+
+function drawBackgroundMountains() {
+  push();
+  noStroke();
+
+  // Mountain 1 - far left
+  fill(120, 90, 65);
+  triangle(
+    width * 0.02, groundY(),
+    width * 0.15, groundY() - 180 * sy,
+    width * 0.28, groundY()
+  );
+  // Snow cap
+  fill(240, 240, 245);
+  triangle(
+    width * 0.12, groundY() - 150 * sy,
+    width * 0.15, groundY() - 180 * sy,
+    width * 0.18, groundY() - 150 * sy
+  );
+
+  // Mountain 2 - behind volcano, left
+  fill(110, 82, 60);
+  triangle(
+    width * 0.40, groundY(),
+    width * 0.52, groundY() - 220 * sy,
+    width * 0.64, groundY()
+  );
+  fill(235, 235, 240);
+  triangle(
+    width * 0.49, groundY() - 190 * sy,
+    width * 0.52, groundY() - 220 * sy,
+    width * 0.55, groundY() - 190 * sy
+  );
+
+  // Mountain 3 - far right
+  fill(115, 85, 62);
+  triangle(
+    width * 0.72, groundY(),
+    width * 0.88, groundY() - 160 * sy,
+    width * 1.02, groundY()
+  );
+  fill(238, 238, 242);
+  triangle(
+    width * 0.85, groundY() - 135 * sy,
+    width * 0.88, groundY() - 160 * sy,
+    width * 0.91, groundY() - 135 * sy
+  );
+
+  pop();
+}
+
+function drawVolcano() {
+  let vx = volcanoX();
+  let vy = volcanoBaseY();
+  let vw = volcanoW();
+  let vh = volcanoH();
+  let phase = getPhase();
+  let h = getSimHours();
+
+  push();
+
+  // Main cone
+  noStroke();
+  fill(130, 95, 65);
+  triangle(
+    vx - vw/2, vy,
+    vx, vy - vh,
+    vx + vw/2, vy
+  );
+
+  // Darker shading on right slope
+  fill(110, 80, 55, 120);
+  triangle(
+    vx, vy - vh,
+    vx + vw/2, vy,
+    vx + vw * 0.1, vy
+  );
+
+  // Snow cap (fades during eruption)
+  let snowAlpha = phase === 0 ? 255 : (phase === 1 ? map(h, 0.5, 1, 255, 100) : map(constrain(h, 1, 3), 1, 3, 100, 0));
+  if (snowAlpha > 0) {
+    fill(240, 240, 245, snowAlpha);
+    triangle(
+      vx - 30*sx, vy - vh + 40*sy,
+      vx, vy - vh,
+      vx + 30*sx, vy - vh + 40*sy
+    );
+  }
+
+  // Crater dip
+  fill(90, 65, 45);
+  ellipse(vx, vy - vh + 8*sy, 40*sx, 12*sy);
+
+  // Crater glow (phase 1+)
+  if (phase >= 1) {
+    let glowIntensity = phase === 1 ? map(h, 0.5, 1, 0, 0.6) : (phase <= 4 ? map(h, 1, 18, 0.6, 1.0) : (phase === 5 ? 1.0 : map(h, 20, 24, 0.8, 0.3)));
+    let pulse = sin(frameCount * 0.08) * 0.15 + 0.85;
+    let a = glowIntensity * pulse * 255;
+
+    // Outer glow
+    fill(255, 100, 20, a * 0.25);
+    ellipse(vx, vy - vh + 5*sy, 80*sx, 40*sy);
+    // Inner glow
+    fill(255, 140, 30, a * 0.5);
+    ellipse(vx, vy - vh + 5*sy, 50*sx, 25*sy);
+    // Hot center
+    fill(255, 200, 80, a * 0.8);
+    ellipse(vx, vy - vh + 5*sy, 25*sx, 12*sy);
+  }
+
+  // Lava flow (phase 4+) - right side of volcano
+  if (phase >= 4) {
+    let lavaProgress = constrain((h - 11) / 7, 0, 1);
+    let lavaLen = lavaProgress * vh * 0.8;
+
+    // Lava glow
+    fill(255, 80, 20, 60);
+    beginShape();
+    let steps = 10;
+    for (let i = 0; i <= steps; i++) {
+      let t = i / steps;
+      let ly = (vy - vh + 20*sy) + t * lavaLen;
+      let lx = vx + 15*sx + t * (vw * 0.35);
+      let wobble = sin(t * 5 + frameCount * 0.05) * 12 * sx;
+      vertex(lx + wobble + 15*sx, ly);
+    }
+    for (let i = steps; i >= 0; i--) {
+      let t = i / steps;
+      let ly = (vy - vh + 20*sy) + t * lavaLen;
+      let lx = vx + 15*sx + t * (vw * 0.35);
+      let wobble = sin(t * 5 + frameCount * 0.05) * 12 * sx;
+      vertex(lx + wobble - 15*sx, ly);
+    }
+    endShape(CLOSE);
+
+    // Bright lava center
+    fill(255, 160, 30, 180);
+    beginShape();
+    for (let i = 0; i <= steps; i++) {
+      let t = i / steps;
+      let ly = (vy - vh + 20*sy) + t * lavaLen;
+      let lx = vx + 15*sx + t * (vw * 0.35);
+      let wobble = sin(t * 5 + frameCount * 0.05) * 6 * sx;
+      vertex(lx + wobble + 6*sx, ly);
+    }
+    for (let i = steps; i >= 0; i--) {
+      let t = i / steps;
+      let ly = (vy - vh + 20*sy) + t * lavaLen;
+      let lx = vx + 15*sx + t * (vw * 0.35);
+      let wobble = sin(t * 5 + frameCount * 0.05) * 6 * sx;
+      vertex(lx + wobble - 6*sx, ly);
+    }
+    endShape(CLOSE);
+  }
+
+  pop();
+}
+
+function drawEruptionColumn() {
+  let phase = getPhase();
+  let h = getSimHours();
+  if (phase < 1) return;
+
+  let vx = volcanoX();
+  let vy = volcanoBaseY() - volcanoH();
+
+  push();
+  noStroke();
+
+  // Column height grows over phases
+  let maxH;
+  if (phase === 1) {
+    maxH = map(h, 0.5, 1, 50, 250) * sy;
+  } else if (phase <= 3) {
+    maxH = map(h, 1, 11, 250, 450) * sy;
+  } else {
+    maxH = map(constrain(h, 11, 24), 11, 24, 450, 350) * sy;
+  }
+
+  // Draw column as stacked ellipses
+  let numBlobs = 20;
+  for (let i = 0; i < numBlobs; i++) {
+    let t = i / numBlobs;
+    let cy = vy - t * maxH;
+    // Width: narrow at base, expands at top (pine tree shape)
+    let w;
+    if (t < 0.7) {
+      w = lerp(30, 50, t / 0.7) * sx;
+    } else {
+      // Umbrella top
+      w = lerp(50, 160, (t - 0.7) / 0.3) * sx;
+    }
+
+    // Color: dark gray with occasional orange
+    let shade = 70 + random(-10, 10);
+    let orangeFlash = (phase >= 2 && random() < 0.05) ? 40 : 0;
+    fill(shade + orangeFlash, shade - orangeFlash * 0.3, shade - orangeFlash * 0.5, 180);
+    ellipse(vx + random(-3, 3)*sx, cy, w + random(-5, 5)*sx, 25*sy);
+  }
+
+  // Rolling ash clouds at top (phase 3+)
+  if (phase >= 3) {
+    for (let i = 0; i < 5; i++) {
+      let cx = vx + sin(frameCount * 0.01 + i * 1.5) * 100 * sx - i * 30 * sx;
+      let cy2 = vy - maxH - 10*sy + i * 15*sy;
+      fill(60, 55, 50, 120);
+      ellipse(cx, cy2, (120 + i * 20) * sx, 40 * sy);
+    }
+  }
+
+  pop();
+}
+
+function drawPyroclasticSurge() {
+  let phase = getPhase();
+  let h = getSimHours();
+
+  if (phase < 4) return;
+
+  let vx = volcanoX();
+  let vy = volcanoBaseY();
+
+  push();
+  noStroke();
+
+  if (phase === 4) {
+    // Surge approaching on volcano slope
+    let surgeProgress = constrain((h - 13) / 5, 0, 0.7);
+    let sLen = surgeProgress * volcanoW() * 0.6;
+    let sx2 = vx - 30*sx;
+
+    for (let i = 0; i < 6; i++) {
+      let bx = sx2 - i * 20 * sx - sLen * (i / 6);
+      let by = vy - 30*sy - i * 8*sy + volcanoH() * 0.3 * (1 - i/6);
+      fill(70, 60, 55, 150 - i * 15);
+      ellipse(bx, by, (60 + i * 15) * sx, (30 + i * 5) * sy);
+    }
+    surgeX = sx2 - sLen;
+  }
+
+  if (phase >= 5) {
+    surgeActive = true;
+    // Surge crossing the city
+    let surgeProgress = constrain((h - 18) / 2, 0, 1);
+    surgeX = lerp(volcanoX() - volcanoW()*0.4, -width * 0.15, surgeProgress);
+
+    // Thermal flash at start
+    if (h < 18.15) {
+      fill(255, 180, 50, map(h, 18, 18.15, 250, 0));
+      rect(0, 0, width, height);
+    }
+
+    // Dense rolling cloud - taller and more dramatic
+    for (let i = 0; i < 20; i++) {
+      let bx = surgeX + i * 30 * sx;
+      let by = vy - 60*sy - sin(i * 0.5 + frameCount * 0.03) * 30*sy;
+      let bw = (90 + sin(i + frameCount * 0.02) * 20) * sx;
+      let bh = (80 + cos(i * 0.7) * 15) * sy;
+
+      // Dark cloud body
+      fill(50, 40, 35, 210);
+      ellipse(bx, by, bw, bh);
+      // Upper billow
+      fill(45, 38, 33, 170);
+      ellipse(bx + 10*sx, by - 25*sy, bw * 0.8, bh * 0.5);
+      // Orange-red glow at base
+      fill(200, 70, 20, 100);
+      ellipse(bx, by + 20*sy, bw * 0.8, bh * 0.3);
+    }
+
+    // Ground-hugging dense part
+    fill(45, 35, 30, 230);
+    rect(surgeX - 120*sx, vy - 100*sy, width - surgeX + 250*sx, 130*sy);
+  }
+
+  if (phase >= 6) {
+    surgeActive = false;
+    // Residual haze
+    fill(60, 50, 45, 150);
+    rect(0, groundY() - 100*sy, width, 120*sy);
+  }
+
+  pop();
+}
+
+function drawGround() {
+  let gY = groundY();
+
+  push();
+  noStroke();
+
+  // Base ground
+  fill(140, 110, 75);
+  rect(0, gY, width, height - gY);
+
+  // Darker soil line
+  fill(120, 95, 65);
+  rect(0, gY, width, 4 * sy);
+
+  // Ash layer on ground
+  if (ashLayerHeight > 0) {
+    fill(165, 155, 145);
+    rect(0, gY - ashLayerHeight, width, ashLayerHeight + height * 0.2);
+
+    // Slightly varied ash surface
+    fill(155, 148, 140);
+    for (let x = 0; x < width; x += 40*sx) {
+      let vary = sin(x * 0.01) * 3 * sy;
+      ellipse(x, gY - ashLayerHeight + vary, 50*sx, 6*sy);
+    }
+  }
+
+  pop();
+}
+
+function drawBuildings() {
+  let gY = groundY();
+  let h = getSimHours();
+  let phase = getPhase();
+
+  push();
+  for (let b of buildings) {
+    let bx = b.x * width;
+    let bw = b.w * sx;
+    let bh = b.h * sy;
+    let by = gY - bh - ashLayerHeight;
+
+    // Check for collapse
+    if (h > b.collapseAt && !b.collapsed) {
+      b.collapsed = true;
+    }
+    if (h > b.crackAt && !b.cracked) {
+      b.cracked = true;
+    }
+
+    // Turn off lights when dark
+    if (phase >= 3) b.windowsLit = false;
+
+    if (b.type === 'wall') {
+      // City wall
+      stroke(80);
+      strokeWeight(1);
+      fill(150, 145, 135);
+      rect(bx - bw/2, by, bw, bh);
+
+      // Stone texture
+      stroke(130, 125, 115);
+      for (let row = 0; row < 4; row++) {
+        line(bx - bw/2, by + row * bh/4, bx + bw/2, by + row * bh/4);
+      }
+
+      if (b.cracked) {
+        stroke(80, 70, 60);
+        strokeWeight(1.5);
+        line(bx - 2*sx, by + 10*sy, bx + 5*sx, by + bh * 0.6);
+      }
+      continue;
+    }
+
+    if (b.type === 'forum') {
+      // Open forum with columns
+      stroke(100, 90, 80);
+      strokeWeight(1);
+      noFill();
+      rect(bx - bw/2, by, bw, bh);
+
+      // Column dots
+      fill(200, 190, 175);
+      noStroke();
+      let cols = 6;
+      for (let i = 0; i < cols; i++) {
+        let cx = bx - bw/2 + (i + 0.5) * bw / cols;
+        ellipse(cx, by + 3*sy, 4*sx, bh - 6*sy);
+        // Top
+        rect(cx - 3*sx, by, 6*sx, 3*sy);
+      }
+
+      // Ash on forum
+      if (b.roofAsh > 0) {
+        noStroke();
+        fill(165, 155, 145, 200);
+        rect(bx - bw/2, by - 2*sy, bw, b.roofAsh);
+      }
+      b.roofAsh = phase >= 2 ? min(b.roofAsh + 0.005 * sy, 15*sy) : 0;
+      continue;
+    }
+
+    // Temple / house
+    stroke(80);
+    strokeWeight(1);
+
+    // Walls
+    fill(230, 220, 200);
+    rect(bx - bw/2, by, bw, bh);
+
+    // Roof
+    let roofDrop = b.collapsed ? bh * 0.3 : 0;
+    if (b.type === 'temple') {
+      fill(180, 80, 60); // Terracotta
+    } else {
+      fill(160, 70, 50);
+    }
+    triangle(
+      bx - bw/2 - 5*sx, by + roofDrop,
+      bx, by - 20*sy + roofDrop,
+      bx + bw/2 + 5*sx, by + roofDrop
+    );
+
+    // Columns on temples
+    if (b.type === 'temple') {
+      stroke(180, 170, 155);
+      strokeWeight(2);
+      let numCols = 3;
+      for (let c = 0; c < numCols; c++) {
+        let cx = bx - bw/3 + c * (bw * 2/3) / (numCols - 1);
+        line(cx, by + 5*sy, cx, by + bh);
+      }
+    }
+
+    // Windows
+    noStroke();
+    let winColor = b.windowsLit ? color(240, 220, 120, 200) : color(70, 60, 50, 180);
+    fill(winColor);
+    let numWin = floor(bw / (20*sx));
+    for (let w = 0; w < numWin; w++) {
+      let wx = bx - bw/3 + w * (bw * 2/3) / max(numWin - 1, 1);
+      rect(wx - 3*sx, by + bh * 0.3, 6*sx, 8*sy);
+    }
+
+    // Door
+    fill(120, 80, 50);
+    rect(bx - 5*sx, by + bh - 18*sy, 10*sx, 18*sy);
+
+    // Cracks
+    if (b.cracked) {
+      stroke(70, 60, 50);
+      strokeWeight(1.5);
+      noFill();
+      line(bx + bw*0.2, by + 5*sy, bx + bw*0.1, by + bh * 0.5);
+      line(bx - bw*0.15, by + 10*sy, bx - bw*0.25, by + bh * 0.4);
+    }
+
+    // Debris from collapsed roof
+    if (b.collapsed) {
+      noStroke();
+      fill(160, 75, 55, 180);
+      for (let d = 0; d < 5; d++) {
+        let dx = bx + (d - 2) * 8*sx;
+        let dy = by + bh - 5*sy;
+        ellipse(dx, dy, random(4, 8)*sx, random(3, 5)*sy);
+      }
+    }
+
+    // Roof ash
+    if (phase >= 2) {
+      b.roofAsh = min(b.roofAsh + 0.008 * sy, 20*sy);
+    }
+    if (b.roofAsh > 0) {
+      noStroke();
+      fill(165, 155, 145, 210);
+      if (!b.collapsed) {
+        // Ash on triangular roof - follow slope
+        beginShape();
+        vertex(bx - bw/2 - 5*sx, by + roofDrop);
+        vertex(bx, by - 20*sy + roofDrop - 1*sy);
+        vertex(bx + bw/2 + 5*sx, by + roofDrop);
+        vertex(bx + bw/2 + 5*sx, by + roofDrop + b.roofAsh);
+        vertex(bx, by - 20*sy + roofDrop - 1*sy + b.roofAsh);
+        vertex(bx - bw/2 - 5*sx, by + roofDrop + b.roofAsh);
+        endShape(CLOSE);
+      }
+    }
+  }
+  pop();
+}
+
+function drawTrees() {
+  let gY = groundY();
+  let phase = getPhase();
+  let h = getSimHours();
+
+  push();
+  for (let t of trees) {
+    let tx = t.x * width;
+    let ty = gY - ashLayerHeight;
+    let th = t.h * sy;
+    let tr = t.r * sx;
+
+    // Tree gets buried over time
+    let visibleH = max(th - ashLayerHeight * 0.5, 0);
+    if (visibleH <= 0) continue;
+
+    // Trunk
+    stroke(100, 70, 40);
+    strokeWeight(3 * sx);
+    line(tx, ty, tx, ty - visibleH);
+
+    // Canopy — grays out over time
+    noStroke();
+    let greenFade = phase >= 3 ? map(constrain(h, 5, 18), 5, 18, 1, 0) : 1;
+    fill(lerp(100, 80, 1-greenFade), lerp(160, 110, 1-greenFade), lerp(80, 70, 1-greenFade), 220);
+    if (visibleH > 10*sy) {
+      ellipse(tx, ty - visibleH, tr * 2, tr * 1.6);
+      ellipse(tx - tr*0.4, ty - visibleH + tr*0.3, tr * 1.2, tr);
+      ellipse(tx + tr*0.4, ty - visibleH + tr*0.3, tr * 1.2, tr);
+    }
+
+    // Ash on tree
+    if (phase >= 2) {
+      fill(165, 155, 145, 160);
+      ellipse(tx, ty - visibleH - tr*0.3, tr * 1.5, 4*sy);
+    }
+  }
+  pop();
+}
+
+function drawAqueduct() {
+  let gY = groundY();
+  let h = getSimHours();
+
+  push();
+  stroke(140, 135, 125);
+  strokeWeight(2 * sx);
+
+  for (let a of aqueductArches) {
+    let ax = a.x * width;
+    let ay = gY - ashLayerHeight;
+    let aw = 25 * sx;
+    let ah = 50 * sy;
+
+    if (h > a.collapseAt && !a.collapsed) {
+      a.collapsed = true;
+    }
+
+    if (a.collapsed) {
+      // Rubble
+      noStroke();
+      fill(140, 135, 125, 180);
+      for (let r = 0; r < 4; r++) {
+        rect(ax - 8*sx + r*5*sx, ay - 5*sy, 6*sx, 5*sy);
+      }
+      continue;
+    }
+
+    // Visible portion
+    let visibleH = ah - ashLayerHeight * 0.3;
+    if (visibleH <= 0) continue;
+
+    noFill();
+    stroke(160, 150, 140);
+    strokeWeight(3 * sx);
+
+    // Pillars
+    line(ax - aw/2, ay, ax - aw/2, ay - visibleH);
+    line(ax + aw/2, ay, ax + aw/2, ay - visibleH);
+
+    // Arch
+    if (visibleH > 20*sy) {
+      arc(ax, ay - visibleH + 15*sy, aw, 25*sy, PI, TWO_PI);
+    }
+
+    // Top beam
+    strokeWeight(2 * sx);
+    line(ax - aw/2 - 2*sx, ay - visibleH, ax + aw/2 + 2*sx, ay - visibleH);
+  }
+  pop();
+}
+
+function drawAshParticles() {
+  push();
+  noStroke();
+  for (let p of ashParticles) {
+    // Soft glow halo
+    fill(p.color, p.color - 10, p.color - 20, p.alpha * 0.3);
+    ellipse(p.x, p.y, p.size * 2, p.size * 2);
+    // Core
+    fill(p.color, p.color - 10, p.color - 20, p.alpha);
+    ellipse(p.x, p.y, p.size, p.size);
+  }
+
+  // Rocks
+  for (let r of rockParticles) {
+    fill(r.color, r.color - 10, r.color - 15, 230);
+    ellipse(r.x, r.y, r.size, r.size * 0.85);
+  }
+  pop();
+}
+
+function drawLightning() {
+  let phase = getPhase();
+  let h = getSimHours();
+  if (phase < 3) return;
+
+  // Random lightning every 2-5 minutes real time (scaled)
+  let interval = random(120000, 300000) / TIME_SCALE;
+  let now = millis();
+  if (phase >= 4) interval *= 0.5; // more frequent
+
+  if (now - lastLightningTime > interval) {
+    lightningFlash = 15;
+    lastLightningTime = now;
+  }
+
+  if (lightningFlash > 0) {
+    push();
+    // Flash overlay
+    noStroke();
+    fill(255, 255, 240, lightningFlash * 10);
+    rect(0, 0, width, groundY());
+
+    // Lightning bolt
+    if (lightningFlash > 8) {
+      stroke(255, 255, 200, 240);
+      strokeWeight(2);
+      let lx = random(width * 0.3, width * 0.8);
+      let ly = random(height * 0.05, height * 0.15);
+      let segments = 5;
+      for (let i = 0; i < segments; i++) {
+        let nx = lx + random(-20, 20) * sx;
+        let ny = ly + (i + 1) * 30 * sy;
+        line(lx, ly, nx, ny);
+        lx = nx;
+        ly = ny;
+      }
+    }
+    lightningFlash--;
+    pop();
+  }
+}
+
+function drawCameraShake() {
+  let phase = getPhase();
+  if (phase >= 1 && phase <= 2) {
+    shakeX = random(-1, 1);
+    shakeY = random(-1, 1);
+  } else if (phase === 5) {
+    shakeX = random(-3, 3);
+    shakeY = random(-2, 2);
+  } else {
+    shakeX = 0;
+    shakeY = 0;
+  }
+}
+
+function drawUI() {
+  let h = getSimHours();
+  let phase = getPhase();
+
+  push();
+  // Reset any shake for UI
+  resetMatrix();
+
+  // --- Title (top left) ---
+  noStroke();
+  fill(0, 0, 0, 120);
+  rect(10, 8, 380 * sx, 55 * sy, 6);
+
+  textFont('Inter');
+  textStyle(NORMAL);
+  fill(255, 255, 255, 240);
+  textSize(max(14, 18 * sx));
+  textAlign(LEFT, TOP);
+  textStyle(BOLD);
+  text("MIND LAB COSMOS — Pompeii: The Last 24 Hours", 20, 14);
+  textStyle(NORMAL);
+  fill(200, 200, 200, 200);
+  textSize(max(12, 14 * sx));
+  text("79 AD  •  Mount Vesuvius", 20, 38);
+
+  // --- Timer (top right) ---
+  let elapsed = getElapsedMs();
+  let elHours = floor(elapsed / 3600000);
+  let elMins = floor((elapsed % 3600000) / 60000);
+  let elSecs = floor((elapsed % 60000) / 1000);
+  let elStr = nf(elHours, 2) + ":" + nf(elMins, 2) + ":" + nf(elSecs, 2);
+
+  // Roman time: starts at 12:00 PM Aug 24
+  let simH = getSimHours();
+  let romanHour = 12 + simH;
+  let romanDay = "AUGUST 24";
+  if (romanHour >= 24) {
+    romanHour -= 24;
+    romanDay = "AUGUST 25";
+  }
+  let romanH = floor(romanHour);
+  let romanM = floor((romanHour - romanH) * 60);
+  let ampm = romanH >= 12 ? "PM" : "AM";
+  let displayH = romanH % 12;
+  if (displayH === 0) displayH = 12;
+  let romanStr = displayH + ":" + nf(romanM, 2) + " " + ampm + "  •  " + romanDay + ", 79 AD";
+
+  let timerX = width - 15;
+
+  noStroke();
+  fill(0, 0, 0, 140);
+  rect(timerX - 320 * sx, 8, 320 * sx, 68 * sy, 6);
+
+  textFont('Inter');
+  textStyle(BOLD);
+  textAlign(RIGHT, TOP);
+  fill(255, 255, 255);
+  textSize(max(14, 17 * sx));
+  text("ELAPSED  " + elStr, timerX - 12, 14);
+
+  textStyle(NORMAL);
+  fill(255, 150, 30);
+  textSize(max(11, 13 * sx));
+  text(romanStr, timerX - 12, 35);
+
+  fill(80, 220, 220);
+  textSize(max(10, 12 * sx));
+  text(getPhaseName(), timerX - 12, 53);
+
+  // --- Population counter (top center) ---
+  let escaped = 0;
+  let remaining = 0;
+  let fallen = 0;
+  for (let p of people) {
+    if (p.escaped) escaped++;
+    else if (p.fallen) fallen++;
+    else remaining++;
+  }
+
+  let popX = width / 2;
+  noStroke();
+  fill(0, 0, 0, 140);
+  rect(popX - 110*sx, 8, 220*sx, 48*sy, 6);
+
+  textFont('Inter');
+  textStyle(BOLD);
+  textAlign(CENTER, TOP);
+  fill(255);
+  textSize(max(12, 14 * sx));
+  text("CITIZENS: " + remaining + " / " + NUM_PEOPLE, popX, 13);
+
+  textStyle(NORMAL);
+  fill(100, 220, 100);
+  textSize(max(10, 12 * sx));
+  text("Escaped: " + escaped + "   Fallen: " + fallen, popX, 34);
+
+  // --- Phase indicator (middle right) ---
+  let pillX = width - 30;
+  let pillY = height * 0.45;
+  let pillW = 280 * sx;
+  let pillH = 30 * sy;
+  let phaseCol = getPhaseColor();
+
+  noStroke();
+  fill(red(phaseCol), green(phaseCol), blue(phaseCol), 180);
+  rect(pillX - pillW, pillY, pillW, pillH, pillH/2);
+
+  fill(255, 255, 255, 240);
+  textFont('Inter');
+  textStyle(BOLD);
+  textSize(max(11, 13 * sx));
+  textAlign(CENTER, CENTER);
+  text(getPhaseEmoji() + "  " + getPhaseName(), pillX - pillW/2, pillY + pillH/2);
+
+  // --- Facts ticker (bottom center) ---
+  let factBarH = 40 * sy;
+  let factBarY = height - factBarH;
+
+  noStroke();
+  fill(0, 0, 0, 160);
+  rect(0, factBarY, width, factBarH);
+
+  // Rotate facts every 4 minutes (real time, NOT scaled)
+  let factInterval = 240000;
+  let now = millis();
+  if (now - lastFactTime > factInterval) {
+    currentFactIndex = (currentFactIndex + 1) % FACTS.length;
+    lastFactTime = now;
+    factAlpha = 0;
+  }
+  factAlpha = min(factAlpha + 8, 255);
+
+  fill(220, 220, 220, factAlpha);
+  textFont('Inter');
+  textStyle(NORMAL);
+  textSize(max(13, 15 * sx));
+  textAlign(CENTER, CENTER);
+  text(FACTS[currentFactIndex], width / 2, factBarY + factBarH / 2);
+
+  // --- Controls hint (bottom right) ---
+  fill(150, 150, 150, 160);
+  textSize(max(10, 11 * sx));
+  textAlign(RIGHT, BOTTOM);
+  let speedLabel = TIME_SCALE === 1.0 ? "1x" : TIME_SCALE + "x";
+  text("[P] Pause   [R] Reset   [T] Speed Toggle (" + speedLabel + ")", width - 15, height - factBarH - 8);
+
+  // Paused indicator
+  if (paused) {
+    fill(255, 80, 80, 200 + sin(frameCount * 0.1) * 55);
+    textFont('Orbitron');
+    textSize(max(24, 30 * sx));
+    textAlign(CENTER, CENTER);
+    text("PAUSED", width / 2, height / 2);
+  }
+
+  pop();
+}
+
+function draw() {
+  if (!paused) {
+    drawCameraShake();
+    spawnAsh();
+    updateParticles();
+    updatePeople();
+  }
+
+  push();
+  translate(shakeX, shakeY);
+
+  // Draw scene layers
+  drawSky();
+  drawSunMoon();
+  drawClouds();
+  drawBackgroundMountains();
+  drawVolcano();
+  drawEruptionColumn();
+  drawGround();
+  drawAqueduct();
+  drawTrees();
+  drawBuildings();
+
+  // Draw people
+  for (let p of people) {
+    drawPerson(p);
+  }
+
+  drawAshParticles();
+  drawPyroclasticSurge();
+  drawLightning();
+
+  pop();
+
+  // UI on top (no shake)
+  drawUI();
+}
+
+function keyPressed() {
+  if (key === 'p' || key === 'P') {
+    if (paused) {
+      // Resume
+      pauseOffset += (Date.now() - pauseStart);
+      paused = false;
+    } else {
+      // Pause
+      pauseStart = Date.now();
+      paused = true;
+    }
+  }
+
+  if (key === 'r' || key === 'R') {
+    // Reset
+    startTime = Date.now();
+    pauseOffset = 0;
+    paused = false;
+    ashParticles = [];
+    rockParticles = [];
+    ashLayerHeight = 0;
+    surgeX = 0;
+    surgeActive = false;
+    surgeReached = false;
+    lightningFlash = 0;
+    lastLightningTime = 0;
+    lastFactTime = millis();
+    currentFactIndex = 0;
+    initBuildings();
+    initPeople();
+    initTrees();
+    initAqueduct();
+  }
+
+  if (key === 't' || key === 'T') {
+    if (TIME_SCALE === 1.0) {
+      TIME_SCALE = 360.0;
+    } else {
+      TIME_SCALE = 1.0;
+    }
+  }
+}
+</script>
+</body>
+</html>

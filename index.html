@@ -281,7 +281,7 @@ function updatePeople() {
     if (p.escaped || p.fallen) continue;
 
     let gY = groundY();
-    p.y = gY - 20 * sy;
+    p.y = gY - 10 * sy;
 
     switch (p.state) {
       case 'calm':
@@ -1424,35 +1424,41 @@ function drawUI() {
     else remaining++;
   }
 
-  let popW = 260 * sx;
+  let popW = 340 * sx;
   let popH = 62 * sy;
   let popX = width / 2 - popW / 2;
   drawPanel(popX, 10, popW, popH, color(100, 220, 120));
 
-  // Population icon (small person silhouette)
-  fill(100, 220, 120, 180);
+  // Scale figures to real population (~11,000)
+  let REAL_POP = 11000;
+  let scaleFactor = REAL_POP / NUM_PEOPLE;
+  let realRemaining = round(remaining * scaleFactor);
+  let realEscaped = round(escaped * scaleFactor);
+  let realFallen = round(fallen * scaleFactor);
+
+  fill(100, 220, 120, 160);
   textFont('Inter');
-  textSize(max(10, 11 * sx));
+  textSize(max(9, 10 * sx));
   textAlign(CENTER, TOP);
-  text("CITIZENS OF POMPEII", width / 2, 16);
+  text("CITIZENS OF POMPEII  ·  EST. POPULATION ~11,000", width / 2, 15);
 
   // Big remaining number
   textFont('Orbitron');
   textStyle(BOLD);
   fill(255, 255, 255, 250);
-  textSize(max(18, 22 * sx));
-  text(remaining + " / " + NUM_PEOPLE, width / 2, 32);
+  textSize(max(16, 20 * sx));
+  text(nfc(realRemaining), width / 2, 30);
 
   // Escaped and fallen counters
   textFont('Inter');
   textStyle(NORMAL);
-  textSize(max(10, 11 * sx));
-  let statY = 54;
+  textSize(max(9, 11 * sx));
+  let statY = 52;
   textAlign(CENTER, TOP);
   fill(80, 220, 120, 200);
-  text("Escaped: " + escaped, width / 2 - 55 * sx, statY);
+  text("Escaped: ~" + nfc(realEscaped), width / 2 - 60 * sx, statY);
   fill(220, 80, 80, fallen > 0 ? 200 : 100);
-  text("Fallen: " + fallen, width / 2 + 55 * sx, statY);
+  text("Fallen: ~" + nfc(realFallen), width / 2 + 60 * sx, statY);
 
   // --- Phase indicator pill (middle right) ---
   let pillW = 300 * sx;
